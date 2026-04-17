@@ -1,0 +1,12 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Common local environment directories
+env/
+venv/
+.venv/
+
+# Infrastructure folder
+infra/
