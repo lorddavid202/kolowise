@@ -17,6 +17,7 @@ type Config struct {
 	RedisDB       int
 	JWTSecret     string
 	JWTIssuer     string
+	MLServiceURL  string
 }
 
 func Load() Config {
@@ -36,6 +37,7 @@ func Load() Config {
 		RedisDB:       redisDB,
 		JWTSecret:     getEnv("JWT_SECRET", ""),
 		JWTIssuer:     getEnv("JWT_ISSUER", "kolowise"),
+		MLServiceURL:  getEnv("ML_SERVICE_URL", "http://localhost:8000"),
 	}
 
 	if cfg.DatabaseURL == "" {

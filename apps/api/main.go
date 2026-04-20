@@ -5,7 +5,13 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/emekachisom/kolowise/internal/accounts"
 	"github.com/emekachisom/kolowise/internal/auth"
+	"github.com/emekachisom/kolowise/internal/goals"
+	"github.com/emekachisom/kolowise/internal/mlbridge"
+	"github.com/emekachisom/kolowise/internal/mlclient"
+	"github.com/emekachisom/kolowise/internal/recommendations"
+	"github.com/emekachisom/kolowise/internal/transactions"
 	"github.com/emekachisom/kolowise/pkg/config"
 	"github.com/emekachisom/kolowise/pkg/db"
 	"github.com/emekachisom/kolowise/pkg/middleware"
@@ -27,7 +33,14 @@ func main() {
 	}
 	defer redisClient.Close()
 
+	mlClient := mlclient.NewClient(cfg.MLServiceURL)
+
 	authHandler := auth.NewHandler(postgresPool, cfg.JWTSecret, cfg.JWTIssuer)
+	accountHandler := accounts.NewHandler(postgresPool)
+	transactionHandler := transactions.NewHandler(postgresPool)
+	goalHandler := goals.NewHandler(postgresPool)
+	recommendationHandler := recommendations.NewHandler(postgresPool)
+	mlBridgeHandler := mlbridge.NewHandler(mlClient)
 
 	router := gin.Default()
 
@@ -70,6 +83,26 @@ func main() {
 		authRoutes.POST("/register", authHandler.Register)
 		authRoutes.POST("/login", authHandler.Login)
 		authRoutes.GET("/me", middleware.AuthRequired(cfg.JWTSecret, cfg.JWTIssuer), authHandler.Me)
+	}
+
+	protected := api.Group("/")
+	protected.Use(middleware.AuthRequired(cfg.JWTSecret, cfg.JWTIssuer))
+	{
+		protected.POST("/accounts", accountHandler.Create)
+		protected.GET("/accounts", accountHandler.List)
+
+		protected.POST("/transactions/manual", transactionHandler.CreateManual)
+		protected.POST("/transactions/upload-csv", transactionHandler.UploadCSV)
+		protected.GET("/transactions", transactionHandler.List)
+
+		protected.POST("/goals", goalHandler.Create)
+		protected.GET("/goals", goalHandler.List)
+		protected.POST("/goals/:id/contribute", goalHandler.Contribute)
+
+		protected.GET("/insights/safe-to-save", recommendationHandler.SafeToSave)
+
+		protected.POST("/ml/predict-category", mlBridgeHandler.PredictCategory)
+		protected.POST("/ml/predict-safe-to-save", mlBridgeHandler.PredictSafeToSave)
 	}
 
 	router.Run(":" + cfg.APIPort)
