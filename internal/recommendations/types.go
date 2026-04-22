@@ -1,6 +1,8 @@
 package recommendations
 
 type SafeToSaveResponse struct {
+	Engine                string `json:"engine"`
+	ModelName             string `json:"model_name"`
 	RuleVersion           string `json:"rule_version"`
 	RecommendedAmountKobo int64  `json:"recommended_amount_kobo"`
 	RecommendedAmount     string `json:"recommended_amount"`

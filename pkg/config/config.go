@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -21,44 +22,57 @@ type Config struct {
 }
 
 func Load() Config {
-	_ = godotenv.Load()
+	appEnv := os.Getenv("APP_ENV")
+	if appEnv == "" {
+		appEnv = "dev"
+	}
 
-	redisDB, err := strconv.Atoi(getEnv("REDIS_DB", "0"))
+	loadEnvFiles(appEnv)
+
+	redisDB, err := mustEnvInt("REDIS_DB")
 	if err != nil {
-		log.Fatalf("invalid REDIS_DB: %v", err)
+		log.Fatal(err)
 	}
 
-	cfg := Config{
-		AppEnv:        getEnv("APP_ENV", "dev"),
-		APIPort:       getEnv("API_PORT", "8080"),
-		DatabaseURL:   getEnv("DATABASE_URL", ""),
-		RedisAddr:     getEnv("REDIS_ADDR", "localhost:6379"),
-		RedisPassword: getEnv("REDIS_PASSWORD", ""),
+	return Config{
+		AppEnv:        appEnv,
+		APIPort:       mustEnv("API_PORT"),
+		DatabaseURL:   mustEnv("DATABASE_URL"),
+		RedisAddr:     mustEnv("REDIS_ADDR"),
+		RedisPassword: os.Getenv("REDIS_PASSWORD"),
 		RedisDB:       redisDB,
-		JWTSecret:     getEnv("JWT_SECRET", ""),
-		JWTIssuer:     getEnv("JWT_ISSUER", "kolowise"),
-		MLServiceURL:  getEnv("ML_SERVICE_URL", "http://localhost:8000"),
+		JWTSecret:     mustEnv("JWT_SECRET"),
+		JWTIssuer:     mustEnv("JWT_ISSUER"),
+		MLServiceURL:  mustEnv("ML_SERVICE_URL"),
 	}
-
-	if cfg.DatabaseURL == "" {
-		log.Fatal("DATABASE_URL is required")
-	}
-
-	if cfg.JWTSecret == "" {
-		log.Fatal("JWT_SECRET is required")
-	}
-
-	if cfg.JWTIssuer == "" {
-		log.Fatal("JWT_ISSUER is required")
-	}
-
-	return cfg
 }
 
-func getEnv(key, fallback string) string {
+func loadEnvFiles(appEnv string) {
+	baseEnv := ".env"
+	envFile := fmt.Sprintf(".env.%s", appEnv)
+
+	_ = godotenv.Load(baseEnv)
+	_ = godotenv.Overload(envFile)
+}
+
+func mustEnv(key string) string {
 	val := os.Getenv(key)
 	if val == "" {
-		return fallback
+		log.Fatalf("%s is required", key)
 	}
 	return val
+}
+
+func mustEnvInt(key string) (int, error) {
+	val := os.Getenv(key)
+	if val == "" {
+		return 0, fmt.Errorf("%s is required", key)
+	}
+
+	parsed, err := strconv.Atoi(val)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a valid integer", key)
+	}
+
+	return parsed, nil
 }

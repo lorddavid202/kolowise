@@ -1,11 +1,13 @@
 package transactions
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/emekachisom/kolowise/internal/mlclient"
 	"github.com/emekachisom/kolowise/pkg/utils"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -13,10 +15,14 @@ import (
 
 type Handler struct {
 	DB *pgxpool.Pool
+	ML *mlclient.Client
 }
 
-func NewHandler(db *pgxpool.Pool) *Handler {
-	return &Handler{DB: db}
+func NewHandler(db *pgxpool.Pool, ml *mlclient.Client) *Handler {
+	return &Handler{
+		DB: db,
+		ML: ml,
+	}
 }
 
 func (h *Handler) CreateManual(c *gin.Context) {
@@ -66,6 +72,15 @@ func (h *Handler) CreateManual(c *gin.Context) {
 		return
 	}
 
+	resolvedCategory := h.resolveCategory(
+		c.Request.Context(),
+		req.Category,
+		req.Narration,
+		req.MerchantName,
+		req.Direction,
+		amountKobo,
+	)
+
 	dbTx, err := h.DB.Begin(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to begin transaction"})
@@ -91,7 +106,7 @@ func (h *Handler) CreateManual(c *gin.Context) {
 		req.Direction,
 		strings.TrimSpace(req.Narration),
 		strings.TrimSpace(req.MerchantName),
-		strings.TrimSpace(req.Category),
+		resolvedCategory,
 		txnDate,
 	).Scan(
 		&res.ID,
@@ -189,6 +204,15 @@ func (h *Handler) UploadCSV(c *gin.Context) {
 
 	var totalDelta int64
 	for _, row := range parsedRows {
+		resolvedCategory := h.resolveCategory(
+			c.Request.Context(),
+			row.Category,
+			row.Narration,
+			row.MerchantName,
+			row.Direction,
+			row.AmountKobo,
+		)
+
 		_, err := dbTx.Exec(
 			c.Request.Context(),
 			`
@@ -203,7 +227,7 @@ func (h *Handler) UploadCSV(c *gin.Context) {
 			row.Direction,
 			row.Narration,
 			row.MerchantName,
-			row.Category,
+			resolvedCategory,
 			row.TxnDate.UTC(),
 		)
 		if err != nil {
@@ -335,6 +359,38 @@ func (h *Handler) List(c *gin.Context) {
 		"limit":        limit,
 		"offset":       offset,
 	})
+}
+
+func (h *Handler) resolveCategory(
+	ctx context.Context,
+	currentCategory string,
+	narration string,
+	merchantName string,
+	direction string,
+	amountKobo int64,
+) string {
+	currentCategory = strings.TrimSpace(strings.ToLower(currentCategory))
+	if currentCategory != "" {
+		return currentCategory
+	}
+
+	if h.ML == nil {
+		return "uncategorized"
+	}
+
+	amountFloat := float64(amountKobo) / 100.0
+
+	resp, err := h.ML.PredictCategory(ctx, mlclient.CategoryPredictionRequest{
+		Narration:    narration,
+		MerchantName: merchantName,
+		Amount:       amountFloat,
+		Direction:    direction,
+	})
+	if err != nil || resp == nil || strings.TrimSpace(resp.Category) == "" {
+		return "uncategorized"
+	}
+
+	return strings.ToLower(strings.TrimSpace(resp.Category))
 }
 
 type pgxRows interface {

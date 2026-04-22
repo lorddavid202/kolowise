@@ -2,8 +2,10 @@ package recommendations
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 
+	"github.com/emekachisom/kolowise/internal/mlclient"
 	"github.com/emekachisom/kolowise/pkg/utils"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -11,10 +13,14 @@ import (
 
 type Handler struct {
 	DB *pgxpool.Pool
+	ML *mlclient.Client
 }
 
-func NewHandler(db *pgxpool.Pool) *Handler {
-	return &Handler{DB: db}
+func NewHandler(db *pgxpool.Pool, ml *mlclient.Client) *Handler {
+	return &Handler{
+		DB: db,
+		ML: ml,
+	}
 }
 
 func (h *Handler) SafeToSave(c *gin.Context) {
@@ -93,29 +99,65 @@ func (h *Handler) SafeToSave(c *gin.Context) {
 		balanceAfterBufferKobo = 0
 	}
 
-	recommendationByBalance := balanceAfterBufferKobo / 2
-	recommendationBySurplus := monthlySurplusKobo * 40 / 100
+	ruleRecommendedKobo := minInt64(balanceAfterBufferKobo/2, monthlySurplusKobo*40/100)
 
-	recommendedAmountKobo := minInt64(recommendationByBalance, recommendationBySurplus)
-
-	if activeGoalNeedKobo > 0 && recommendedAmountKobo > activeGoalNeedKobo {
-		recommendedAmountKobo = activeGoalNeedKobo
+	if activeGoalNeedKobo > 0 && ruleRecommendedKobo > activeGoalNeedKobo {
+		ruleRecommendedKobo = activeGoalNeedKobo
+	}
+	if ruleRecommendedKobo < 0 {
+		ruleRecommendedKobo = 0
 	}
 
-	if recommendedAmountKobo < 0 {
-		recommendedAmountKobo = 0
-	}
-
-	ruleVersion := "rule_based_v1"
+	engine := "rule_based"
+	modelName := "rule_based_v1"
+	recommendedAmountKobo := ruleRecommendedKobo
 
 	reason := fmt.Sprintf(
-		"Based on your current balance of NGN %s, average monthly income of NGN %s, average monthly expenses of NGN %s, and an emergency buffer of NGN %s, the system recommends saving NGN %s now.",
+		"Fallback rule engine was used. Based on your current balance of NGN %s, average monthly income of NGN %s, average monthly expenses of NGN %s, and an emergency buffer of NGN %s, the system recommends saving NGN %s now.",
 		utils.KoboToAmountString(availableBalanceKobo),
 		utils.KoboToAmountString(avgMonthlyIncomeKobo),
 		utils.KoboToAmountString(avgMonthlyExpenseKobo),
 		utils.KoboToAmountString(emergencyBufferKobo),
 		utils.KoboToAmountString(recommendedAmountKobo),
 	)
+
+	if h.ML != nil {
+		mlResp, mlErr := h.ML.PredictSafeToSave(c.Request.Context(), mlclient.SafeToSaveRequest{
+			AvailableBalance:  float64(availableBalanceKobo) / 100.0,
+			AvgMonthlyIncome:  float64(avgMonthlyIncomeKobo) / 100.0,
+			AvgMonthlyExpense: float64(avgMonthlyExpenseKobo) / 100.0,
+			EmergencyBuffer:   float64(emergencyBufferKobo) / 100.0,
+			MonthlySurplus:    float64(monthlySurplusKobo) / 100.0,
+			ActiveGoalNeed:    float64(activeGoalNeedKobo) / 100.0,
+		})
+
+		if mlErr == nil && mlResp != nil {
+			mlRecommendedKobo := int64(math.Round(mlResp.RecommendedAmount * 100))
+
+			if mlRecommendedKobo < 0 {
+				mlRecommendedKobo = 0
+			}
+
+			safeCapKobo := ruleRecommendedKobo
+			if safeCapKobo < 0 {
+				safeCapKobo = 0
+			}
+
+			if mlRecommendedKobo > safeCapKobo {
+				mlRecommendedKobo = safeCapKobo
+			}
+
+			recommendedAmountKobo = mlRecommendedKobo
+			engine = "ml"
+			modelName = mlResp.ModelName
+
+			reason = fmt.Sprintf(
+				"ML model %s was used first. The recommendation was safety-capped by your rule-based guardrails, resulting in NGN %s.",
+				modelName,
+				utils.KoboToAmountString(recommendedAmountKobo),
+			)
+		}
+	}
 
 	_, _ = h.DB.Exec(
 		c.Request.Context(),
@@ -142,12 +184,14 @@ func (h *Handler) SafeToSave(c *gin.Context) {
 		emergencyBufferKobo,
 		monthlySurplusKobo,
 		activeGoalNeedKobo,
-		ruleVersion,
+		modelName,
 		reason,
 	)
 
 	resp := SafeToSaveResponse{
-		RuleVersion:           ruleVersion,
+		Engine:                engine,
+		ModelName:             modelName,
+		RuleVersion:           "rule_guardrail_v1",
 		RecommendedAmountKobo: recommendedAmountKobo,
 		RecommendedAmount:     utils.KoboToAmountString(recommendedAmountKobo),
 		AvailableBalanceKobo:  availableBalanceKobo,

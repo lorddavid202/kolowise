@@ -15,6 +15,7 @@ import (
 	"github.com/emekachisom/kolowise/pkg/config"
 	"github.com/emekachisom/kolowise/pkg/db"
 	"github.com/emekachisom/kolowise/pkg/middleware"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
@@ -37,12 +38,21 @@ func main() {
 
 	authHandler := auth.NewHandler(postgresPool, cfg.JWTSecret, cfg.JWTIssuer)
 	accountHandler := accounts.NewHandler(postgresPool)
-	transactionHandler := transactions.NewHandler(postgresPool)
+	transactionHandler := transactions.NewHandler(postgresPool, mlClient)
 	goalHandler := goals.NewHandler(postgresPool)
-	recommendationHandler := recommendations.NewHandler(postgresPool)
+	recommendationHandler := recommendations.NewHandler(postgresPool, mlClient)
 	mlBridgeHandler := mlbridge.NewHandler(mlClient)
 
 	router := gin.Default()
+
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:3000"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
 
 	router.GET("/healthz", func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
@@ -105,5 +115,7 @@ func main() {
 		protected.POST("/ml/predict-safe-to-save", mlBridgeHandler.PredictSafeToSave)
 	}
 
-	router.Run(":" + cfg.APIPort)
+	if err := router.Run(":" + cfg.APIPort); err != nil {
+		panic(err)
+	}
 }
