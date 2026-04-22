@@ -366,3 +366,55 @@ func parseGoalDate(input string) (time.Time, error) {
 
 	return time.Time{}, fmt.Errorf("invalid target date")
 }
+
+func (h *Handler) ListContributions(c *gin.Context) {
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	goalID := c.Param("id")
+	if strings.TrimSpace(goalID) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "goal id is required"})
+		return
+	}
+
+	rows, err := h.DB.Query(
+		c.Request.Context(),
+		`
+		SELECT id, goal_id, account_id, amount_kobo, note, created_at
+		FROM goal_contributions
+		WHERE goal_id = $1 AND user_id = $2
+		ORDER BY created_at DESC
+		`,
+		goalID,
+		userID,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load contribution history"})
+		return
+	}
+	defer rows.Close()
+
+	contributions := make([]ContributionResponse, 0)
+	for rows.Next() {
+		var item ContributionResponse
+		if err := rows.Scan(
+			&item.ID,
+			&item.GoalID,
+			&item.AccountID,
+			&item.AmountKobo,
+			&item.Note,
+			&item.CreatedAt,
+		); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to scan contribution"})
+			return
+		}
+
+		item.Amount = utils.KoboToAmountString(item.AmountKobo)
+		contributions = append(contributions, item)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"contributions": contributions})
+}

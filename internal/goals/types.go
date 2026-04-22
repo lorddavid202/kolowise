@@ -30,3 +30,13 @@ type GoalResponse struct {
 	Status            string    `json:"status"`
 	CreatedAt         time.Time `json:"created_at"`
 }
+
+type ContributionResponse struct {
+	ID         string    `json:"id"`
+	GoalID     string    `json:"goal_id"`
+	AccountID  string    `json:"account_id"`
+	AmountKobo int64     `json:"amount_kobo"`
+	Amount     string    `json:"amount"`
+	Note       string    `json:"note"`
+	CreatedAt  time.Time `json:"created_at"`
+}

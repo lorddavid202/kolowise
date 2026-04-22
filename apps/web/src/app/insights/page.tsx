@@ -21,7 +21,7 @@ type SafeToSaveResponse = {
   safe_to_save: SafeToSave;
 };
 
-const fetcher = (path: string) => apiFetch<SafeToSaveResponse>(path);
+const fetcher = () => apiFetch<SafeToSaveResponse>("/insights/safe-to-save");
 
 export default function InsightsPage() {
   const { data, error, isLoading, mutate } = useSWR(
@@ -37,7 +37,7 @@ export default function InsightsPage() {
         <div>
           <h1 className="text-3xl font-bold">Insights</h1>
           <p className="text-sm text-gray-500">
-            Savings intelligence and recommendation engine
+            Savings intelligence and explanation panel
           </p>
         </div>
 
@@ -122,11 +122,32 @@ export default function InsightsPage() {
               </div>
 
               <div className="rounded-2xl border bg-white p-6">
-                <h3 className="text-xl font-semibold">Recommendation Reason</h3>
-                <p className="mt-4 text-sm leading-7 text-gray-700">
-                  {safeToSave?.reason}
-                </p>
+                <h3 className="text-xl font-semibold">How this recommendation was made</h3>
+                <div className="mt-4 space-y-3 text-sm leading-7 text-gray-700">
+                  <p>
+                    <strong>Step 1:</strong> The system checks your available balance.
+                  </p>
+                  <p>
+                    <strong>Step 2:</strong> It estimates your average monthly income and expenses.
+                  </p>
+                  <p>
+                    <strong>Step 3:</strong> It keeps an emergency buffer aside first.
+                  </p>
+                  <p>
+                    <strong>Step 4:</strong> It compares your surplus against your active goal need.
+                  </p>
+                  <p>
+                    <strong>Step 5:</strong> The ML model proposes a value, then the rule-based guardrail caps it for safety.
+                  </p>
+                </div>
               </div>
+            </div>
+
+            <div className="rounded-2xl border bg-white p-6">
+              <h3 className="text-xl font-semibold">Recommendation Reason</h3>
+              <p className="mt-4 text-sm leading-7 text-gray-700">
+                {safeToSave?.reason}
+              </p>
             </div>
 
             <button

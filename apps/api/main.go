@@ -108,6 +108,7 @@ func main() {
 		protected.POST("/goals", goalHandler.Create)
 		protected.GET("/goals", goalHandler.List)
 		protected.POST("/goals/:id/contribute", goalHandler.Contribute)
+		protected.GET("/goals/:id/contributions", goalHandler.ListContributions)
 
 		protected.GET("/insights/safe-to-save", recommendationHandler.SafeToSave)
 
